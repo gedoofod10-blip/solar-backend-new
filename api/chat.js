@@ -1,49 +1,48 @@
 export default async function handler(req, res) {
+  // 1. السماح للتطبيق بالاتصال
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  if (req.method !== 'POST') {
+    return res.status(200).json({ reply: "السيرفر شغال بمكنة Groq الصاروخية! 🚀" });
+  }
+
   try {
-    const { messages } = req.body; 
+    const API_KEY = process.env.GROQ_API_KEY;
+    if (!API_KEY) {
+      return res.status(200).json({ reply: "⚠️ المفتاح مافي! تأكد من إضافته في Vercel باسم GROQ_API_KEY." });
+    }
 
-    let systemInstruction = "";
-    const geminiMessages = [];
+    const { messages } = req.body;
 
-    messages.forEach(msg => {
-      if (msg.role === "system") {
-        systemInstruction = msg.content;
-      } else {
-        geminiMessages.push({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }]
-        });
-      }
-    });
-
-    // استدعاء مفتاح جوجل السري من Vercel
-    const API_KEY = process.env.GEMINI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    // 2. الاتصال بسيرفرات Groq
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${API_KEY}`,
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents: geminiMessages
+        model: "llama3-8b-8192", // نموذج لاما 3 السريع والمجاني
+        messages: messages
       })
     });
 
     const data = await response.json();
 
-    if (data.error) throw new Error(data.error.message);
+    // 3. صيد الأخطاء لو حصلت وعرضها في الشات
+    if (data.error) {
+      return res.status(200).json({ reply: `⚠️ خطأ من سيرفر Groq: ${data.error.message}` });
+    }
 
-    const reply = data.candidates[0].content.parts[0].text;
-    res.status(200).json({ reply });
+    // 4. إرجاع الرد الناجح للتطبيق
+    const replyText = data.choices[0].message.content;
+    return res.status(200).json({ reply: replyText });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "خطأ في السيرفر" });
+    return res.status(200).json({ reply: `⚠️ خطأ داخلي في الاتصال: ${error.message}` });
   }
 }
